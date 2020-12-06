@@ -1,7 +1,7 @@
 ---
 title: "Journal (reproducible report)"
 author: "Alejandro Garza"
-date: "2020-11-26"
+date: "2020-12-06"
 output:
   html_document:
     toc: true
@@ -14,6 +14,400 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(message=FALSE,warning=FALSE, cache=TRUE)
+```
+
+# Challenge Data Visualization
+
+## Map the time course of the cumulative Covid-19 cases
+
+```{r librariesv1}
+library(data.table)
+library(tidyverse)
+library(lubridate)
+library(ggthemes)
+library(scales)
+
+covid_data_tbl <- read_csv("https://opendata.ecdc.europa.eu/covid19/casedistribution/csv")
+
+covid_data_tbl <- covid_data_tbl %>% 
+                  mutate(dateRep = as.Date(dateRep, "%d/%m/%Y")) %>%
+                  arrange(dateRep)
+
+glimpse(covid_data_tbl)
+```
+
+
+```{r}
+covid_2020_tbl <- covid_data_tbl %>%
+                  select(countriesAndTerritories, dateRep, cases, year, month) %>% 
+                  filter(year == 2020) %>% 
+                  filter(countriesAndTerritories %in% c("Germany", "United_Kingdom", "France", "Spain", "United_States_of_America") ) %>%
+                  arrange(countriesAndTerritories) %>% 
+                  group_by(countriesAndTerritories) %>%
+                  mutate(cumulative_sum = cumsum(cases)) %>% 
+                  ungroup()
+
+```
+
+```{r}
+ covid_2020_tbl %>%    
+
+    ggplot(aes(dateRep, cumulative_sum, color = countriesAndTerritories)) +
+
+    geom_line(size = 1) +
+  
+    scale_x_date(date_breaks = "1 month", date_labels = "%B" )  +  
+    scale_y_continuous(labels =  number_format(scale = 1e-6, suffix = " M")) +
+
+    theme_minimal() +
+
+    labs(
+        title = "COVID-19 Cases Confirmed Worldwide",
+        subtitle = "USA is the country with the most",
+        tag = "Challenge 1",
+        x = "Year 2020",
+        y = "Cummulative Cases",
+        color = "Countries" # Legend text
+    ) +
+  
+  
+    theme(
+        legend.position = "bottom",
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(face = "bold"),
+        plot.tag = element_text(face = "bold"),
+        plot.tag.position =  "bottom"
+    ) +
+  
+    geom_label( label = max(covid_2020_tbl %>% select(cumulative_sum)),
+                vjust = 0.5,
+                hjust = 1.5,
+                size  = 3,
+                data  = covid_2020_tbl %>% 
+                  filter(countriesAndTerritories %in% c("United_States_of_America")) %>% 
+                  filter(dateRep == max(covid_2020_tbl$dateRep))
+               ) 
+
+```
+
+## Challenge 2 Heatmap of Deathrate
+
+Data Wrangling
+```{r four}
+covid_mortality_tbl <-  covid_data_tbl %>% 
+                        arrange(countriesAndTerritories) %>% 
+                        group_by(countriesAndTerritories) %>%
+                        summarise(sum_population = mean(popData2019) , sum_deaths = sum(deaths)) %>% 
+                        mutate( mortality_rate = (sum_deaths / sum_population)) %>% 
+                        select(countriesAndTerritories, mortality_rate)  %>% 
+                        mutate(across(countriesAndTerritories, str_replace_all, "_", " ")) %>%
+                        mutate(countriesAndTerritories = case_when(
+                      
+                          countriesAndTerritories == "United Kingdom" ~ "UK",
+                          countriesAndTerritories == "United States of America" ~ "USA",
+                          countriesAndTerritories == "Czechia" ~ "Czech Republic",
+                          TRUE ~ countriesAndTerritories ))
+  
+```
+
+```{r five}
+library(mapdata)
+library(maps)
+library(maptools)
+
+world <-  map_data("world")
+
+covid_mortality_tbl %>% 
+  ggplot(aes(map_id= countriesAndTerritories)) +
+  geom_map(aes(fill = mortality_rate), map = world ) +
+  expand_limits(x = world$long, y = world$lat) +
+  
+  scale_fill_gradient(low = "red1", high = "black", 
+                         labels = percent_format(),
+                        limits=c(0,0.0015),
+                        breaks=seq(0,0.0015,by=0.0003)) +
+  
+    labs(
+        title = "COVID-19 deaths relative to the size of population",
+        subtitle = "More than 1.2 million confirmed COVID-19 deaths worldwide",
+        tag = "Challenge 2"
+        #x = "Year 2020",
+        #y = "Cummulative Cases",
+ 
+    ) +
+  
+      theme(
+        plot.title = element_text(face = "bold"),
+        plot.tag = element_text(face = "bold"),
+        plot.tag.position =  "bottom",
+        axis.title=element_blank(),
+        axis.text=element_blank(),
+        axis.ticks=element_blank()
+    ) 
+  
+
+```
+
+# Data Wrangling Patents Challenge
+
+## Import Data
+
+```{r six}
+library(vroom)
+library(data.table)
+library(tidyverse)
+
+col_types <- list(
+  id = col_character(),
+  type = col_skip(),
+  number = col_character(),
+  country = col_character(),
+  date = col_date("%Y-%m-%d"),
+  abstract = col_skip(),
+  title = col_skip(),
+  kind = col_skip(),
+  num_claims = col_double(),
+  filename = col_skip(),
+  withdrawn = col_skip()
+)
+
+patent_tbl <- vroom(
+            file       = "/Users/alejandrogarza/Desktop/data_science/00_data/03_patent/patent.tsv", 
+            delim      = "\t", 
+            col_types  = col_types,
+            na         = c("", "NA", "NULL")
+        )
+
+```
+
+```{r seven}
+setDT(patent_tbl)
+```
+
+Import Assignee Data
+```{r eight}
+col_types <- list(
+  id = col_character(),
+  type = col_character(),
+  name_first = col_skip(),
+  name_last = col_skip(),
+  organization = col_character()
+)
+
+assignee_tbl <- vroom(
+            file       = "/Users/alejandrogarza/Desktop/data_science/00_data/03_patent/assignee.tsv", 
+            delim      = "\t", 
+            col_types  = col_types,
+            na         = c("", "NA", "NULL")
+        )
+
+setDT(assignee_tbl)
+```
+
+Import Patent Assignee
+```{r nein}
+col_types <- list(
+  patent_id = col_character(),
+  assignee_id = col_character(),
+  location_id = col_skip()
+)
+
+patent_assignee_tbl <- vroom(
+            file       = "/Users/alejandrogarza/Desktop/data_science/00_data/03_patent/patent_assignee.tsv", 
+            delim      = "\t", 
+            col_types  = col_types,
+            na         = c("", "NA", "NULL")
+        )
+setDT(patent_assignee_tbl)
+```
+
+Import USPC
+```{r ten}
+col_types <- list(
+  uuid = col_character(),
+  patent_id = col_character(),
+  mainclass_id = col_character(),
+  subclass_id = col_skip(),
+  sequence = col_skip()
+)
+
+uspc_tbl <- vroom(
+            file       = "/Users/alejandrogarza/Desktop/data_science/00_data/03_patent/uspc.tsv", 
+            delim      = "\t", 
+            col_types  = col_types,
+            na         = c("", "NA", "NULL")
+        )
+setDT(uspc_tbl)
+```
+
+
+## Patent Dominance
+
+What US company / corporation has the most patents? List the 10 US companies with the most assigned/granted patents.
+
+Filter for US Corp and Company Patents and Merge both tables
+```{r eleven}
+us_company_corp_assignee_tbl <- assignee_tbl[type == "2"]
+
+us_assignee_patent_tbl <-  merge(x = us_company_corp_assignee_tbl, y =patent_assignee_tbl,
+                                    by.x = "id",
+                                    by.y = "assignee_id",
+                                    all.x = TRUE,
+                                    all.y = FALSE)
+
+```
+
+Group by Patents, deleting the N/As in Patent ID and showing the top 10
+```{r twelve}
+top_companies <-  us_assignee_patent_tbl[,.N, by = .(patent_id, organization)][!is.na(patent_id), .N, by = organization][order(-N)][1:10]
+
+top_companies
+```
+
+## Challenge 2 What US companies had the most patents granted in 2019
+
+```{r thirteen}
+patents_2019 <- patent_tbl[ year(date) == "2019"]
+```
+
+```{r fourteen}
+us_companies_patents_2019 <- merge(x = us_assignee_patent_tbl, y = patents_2019, 
+                                   by.x = "patent_id",
+                                   by.y = "id")
+
+top_us_2019 <-  us_companies_patents_2019[,.N, by = .(patent_id, organization)][!is.na(patent_id), .N, by = organization][order(-N)][1:10]
+
+top_us_2019
+```
+# Challenge Data Retrieval
+
+## Retrieval API
+
+This API gives you al the stats of your favorite superhero
+
+```{r}
+library(httr)
+library(glue)
+library(jsonlite)
+
+my_token = "10157355509057553"
+# Wrapped into a function
+sh_api <- function(path) {
+  url <- modify_url(url = "https://superheroapi.com", path = glue("/api/{my_token}/{path}"))
+  resp <- GET(url)
+  stop_for_status(resp) # automatically throws an error if a request did not succeed
+}
+
+# Change here the superhero ID to get the complete info, example is Batman
+resp <- sh_api("69")
+
+superhero <- content(resp)
+
+superhero
+
+```
+
+## Challange Part 2
+
+We want to build a dataset buy web scapping from the Rosebike webshop.
+The scope is a database with the model names and prices for the category racebikes.
+
+### New libraries
+```{r}
+library(tidyverse) # Main Package - Loads dplyr, purrr, etc.
+library(rvest)     # HTML Hacking & Web Scraping
+library(xopen)     # Quickly opening URLs
+library(jsonlite)  # converts JSON files to R objects
+library(glue)      # concatenate strings
+library(stringi)
+library(purrr)
+```
+
+
+### Get the bike product family IDs
+```{r eval= FALSE}
+# 1.1 COLLECT PRODUCT FAMILIES ----
+
+url_home          <- "https://www.rosebikes.de"
+#xopen(url_home) # Open links directly from RStudio to inspect them
+
+# Read in the HTML for the entire webpage
+html_home         <- read_html(url_home)
+
+# Web scrape the ids for the families
+bike_category_tbl <- html_home %>%
+
+                # Get the nodes for the families with the title description. The pointer is unique for bicycle categories.
+                html_nodes(css = ".main-navigation-category-with-tiles__item > a") %>% 
+                # ...and extract the information of the id attribute
+                html_attr("href") %>% 
+
+                
+                #discard(.p = ~stringr::str_detect(.x,"sale")) %>% 
+
+                # Convert vector to tibble
+                enframe(name = "position", value = "subdirectory") %>% 
+
+                mutate(
+                url = glue("{url_home}{subdirectory}")
+               ) %>%
+
+               # Some categories are listed multiple times.
+               # We only need unique values
+               distinct(url)
+
+bike_category_tbl
+
+
+get_bike_family <- function(url) {
+ html_bike_family <- read_html(url)
+ bike_category_family_tbl <-  html_bike_family %>% 
+                    html_nodes(css = ".catalog-category-bikes__list-item > div > a") %>% 
+                   html_attr("href") %>% 
+               # Convert vector to tibble
+               enframe(name = "position_cf", value = "subdirectory_cf") 
+
+}
+
+bike_family_tbl <- map(bike_category_tbl$url,get_bike_family) %>% 
+ rbindlist(use.names=TRUE, fill=FALSE, idcol=NULL) %>% 
+  mutate(
+              url = glue("{url_home}{subdirectory_cf}")
+               ) %>%
+               # if categories are listed multiple times.
+               # We only need unique values
+               distinct(url)
+
+get_bike_info <- function(url) {
+ html_bike_model <- read_html(url)
+ bike_info_names_tbl <-  html_bike_model %>% 
+                    html_nodes(css = ".catalog-category-model__title") %>% 
+                   html_text() %>% 
+                   # Convert vector to tibble
+                   str_remove(pattern = "\n") %>% 
+                   str_remove(pattern = "\n") %>% 
+                   enframe(name = "position", value = "name") 
+
+ bike_info_price_tbl <- html_bike_model %>% 
+                    html_nodes(css = ".product-tile-price__current-value.catalog-category-model__price-current-value") %>% 
+                   html_text() %>% 
+                   str_remove(pattern = "\n") %>% 
+                   str_remove(pattern = "\n") %>% 
+                   # Convert vector to tibble
+                   enframe(name = "position", value = "price") 
+ # Creating a dataset putting together Category, Family, Model, price, url
+ bike_model_info_tbl <- left_join(bike_info_names_tbl,bike_info_price_tbl) %>% mutate(link = url) %>% select(-position)
+}
+
+# Test for one
+#bike_model_info_tbl_1 <- get_bike_info(bike_family_tbl$url[1])
+```
+
+```{r eval= FALSE}
+library(furrr)
+plan("multiprocess")
+bike_model_info_tbl <- future_map(bike_family_tbl$url,get_bike_info) %>% 
+ rbindlist(use.names=TRUE, fill=FALSE, idcol=NULL)
 ```
 
 
