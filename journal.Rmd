@@ -33,7 +33,6 @@ covid_data_tbl <- covid_data_tbl %>%
                   mutate(dateRep = as.Date(dateRep, "%d/%m/%Y")) %>%
                   arrange(dateRep)
 
-glimpse(covid_data_tbl)
 ```
 
 
@@ -321,11 +320,12 @@ library(jsonlite)  # converts JSON files to R objects
 library(glue)      # concatenate strings
 library(stringi)
 library(purrr)
+library(data.table)
 ```
 
 
 ### Get the bike product family IDs
-```{r eval= FALSE}
+```{r}
 # 1.1 COLLECT PRODUCT FAMILIES ----
 
 url_home          <- "https://www.rosebikes.de"
@@ -365,18 +365,34 @@ get_bike_family <- function(url) {
                     html_nodes(css = ".catalog-category-bikes__list-item > div > a") %>% 
                    html_attr("href") %>% 
                # Convert vector to tibble
-               enframe(name = "position_cf", value = "subdirectory_cf") 
+               enframe(name = "position_cf", value = "subdirectory_cf") %>% 
+              as_tibble()
 
 }
 
-bike_family_tbl <- map(bike_category_tbl$url,get_bike_family) %>% 
- rbindlist(use.names=TRUE, fill=FALSE, idcol=NULL) %>% 
-  mutate(
-              url = glue("{url_home}{subdirectory_cf}")
-               ) %>%
+#bike_family_tbl <- map(bike_category_tbl$url,get_bike_family) %>% 
+ #rbindlist(use.names=TRUE, fill=FALSE, idcol=NULL) %>% 
+ # mutate(
+              #url = glue("{url_home}{subdirectory_cf}")
+               #) %>%
                # if categories are listed multiple times.
                # We only need unique values
-               distinct(url)
+               #distinct(url)
+
+bike_family_url_tbl_1 <- get_bike_family(bike_category_tbl$url[1]) 
+bike_family_url_tbl_2 <- get_bike_family(bike_category_tbl$url[2]) 
+bike_family_url_tbl_3 <- get_bike_family(bike_category_tbl$url[3])
+bike_family_url_tbl_4 <- get_bike_family(bike_category_tbl$url[4])
+bike_family_url_tbl_5 <- get_bike_family(bike_category_tbl$url[5])
+
+bike_family_url_tbl <- rbind(bike_family_url_tbl_1, bike_family_url_tbl_2,bike_family_url_tbl_3,bike_family_url_tbl_4,bike_family_url_tbl_5) %>% 
+  as_tibble() %>% 
+  # create a extra collumn to store the link to each product family page
+  mutate(url = glue("{url_home}{subdirectory_cf}")) %>% 
+  # organize
+  select(url,subdirectory_cf) %>% 
+  # convert glue to char
+  mutate(url = as.character(url))
 
 get_bike_info <- function(url) {
  html_bike_model <- read_html(url)
@@ -394,7 +410,8 @@ get_bike_info <- function(url) {
                    str_remove(pattern = "\n") %>% 
                    str_remove(pattern = "\n") %>% 
                    # Convert vector to tibble
-                   enframe(name = "position", value = "price") 
+                   enframe(name = "position", value = "price")
+ 
  # Creating a dataset putting together Category, Family, Model, price, url
  bike_model_info_tbl <- left_join(bike_info_names_tbl,bike_info_price_tbl) %>% mutate(link = url) %>% select(-position)
 }
@@ -403,11 +420,14 @@ get_bike_info <- function(url) {
 #bike_model_info_tbl_1 <- get_bike_info(bike_family_tbl$url[1])
 ```
 
-```{r eval= FALSE}
+
+```{r }
 library(furrr)
 plan("multiprocess")
-bike_model_info_tbl <- future_map(bike_family_tbl$url,get_bike_info) %>% 
- rbindlist(use.names=TRUE, fill=FALSE, idcol=NULL)
+bike_model_info_tbl <- future_map(bike_family_url_tbl$url,get_bike_info)%>% 
+  rbindlist(use.names=TRUE, fill=FALSE, idcol=NULL)
+
+bike_model_info_tbl
 ```
 
 
